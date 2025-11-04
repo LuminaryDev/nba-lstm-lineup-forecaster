@@ -4,6 +4,15 @@ import json
 import pandas as pd
 import numpy as np
 
+# Import pgmpy - this should work with your version
+try:
+    from pgmpy.inference import VariableElimination
+    PGMPY_AVAILABLE = True
+    st.success("✅ pgmpy 1.0.0 loaded successfully!")
+except ImportError as e:
+    PGMPY_AVAILABLE = False
+    st.error(f"❌ pgmpy import failed: {e}")
+
 st.set_page_config(
     page_title="NBA LSTM Lineup Forecaster", 
     page_icon="🧠", 
@@ -22,89 +31,93 @@ def load_model():
         st.error(f"Model loading error: {e}")
         return None, None
 
-def predict_efficiency_simple(projection, fg_pct, plus_minus, net_rating, assists):
-    """Simple prediction logic without pgmpy"""
-    # Simplified prediction based on feature values
-    score = (projection * 0.3 + fg_pct * 0.25 + plus_minus * 0.2 + 
-             net_rating * 0.15 + assists * 0.1)
-    
-    if score < 1.0:
-        return [0.7, 0.2, 0.1]  # Low efficiency
-    elif score < 2.0:
-        return [0.2, 0.6, 0.2]  # Medium efficiency
-    else:
-        return [0.1, 0.2, 0.7]  # High efficiency
-
 def main():
     st.title("🧠 NBA LSTM Lineup Forecaster")
-    st.markdown("**LSTM Neural Network • 70.57% Accuracy**")
+    st.markdown("**LSTM Neural Network + Bayesian Network • 70.57% Accuracy**")
     
-    # Try to load model for display, but use simple prediction
+    # Load model
     model, feature_info = load_model()
     
-    if model is not None:
-        st.success("✅ AI Model Loaded Successfully!")
-    else:
-        st.info("🔧 Using Simplified Prediction Engine")
+    if not PGMPY_AVAILABLE:
+        st.error("pgmpy not available - cannot run Bayesian Network predictions")
+        return
+        
+    if model is None:
+        st.error("Failed to load AI model")
+        return
+        
+    infer = VariableElimination(model)
     
     # Input interface
-    st.header("📊 Lineup Analysis")
+    st.header("📊 Lineup Efficiency Prediction")
     
     col1, col2 = st.columns(2)
     with col1:
-        p1 = st.slider("🔮 LSTM Projection", 0, 3, 2)
+        p1 = st.slider("🔮 LSTM Projection Strength", 0, 3, 2)
         p2 = st.slider("🎯 FG% Level", 0, 3, 2)
         p3 = st.slider("📈 Plus/Minus", 0, 3, 2)
     with col2:
         p4 = st.slider("⭐ Net Rating", 0, 3, 2)
         p5 = st.slider("🤝 Assist Form", 0, 3, 2)
     
-    if st.button("🧠 Predict Efficiency", type="primary"):
-        # Use simple prediction (bypass pgmpy dependency)
-        probs = predict_efficiency_simple(p1, p2, p3, p4, p5)
-        pred_class = np.argmax(probs)
+    if st.button("🧠 Predict Lineup Efficiency", type="primary"):
+        evidence = {
+            'PROJECTION_STRENGTH_LEVEL': p1, 
+            'FG_PCT_LEVEL': p2, 
+            'PLUS_MINUS_LEVEL': p3,
+            'LINEUP_NET_RATING_TALENT_LEVEL': p4, 
+            'AVG_FORM_RATIO_AST_LEVEL': p5
+        }
         
-        # Display results
-        efficiency = ["Low", "Medium", "High"][pred_class]
-        st.success(f"**Prediction:** {efficiency} Efficiency")
-        
-        # Progress bars
-        st.progress(probs[0], text=f"Low: {probs[0]*100:.1f}%")
-        st.progress(probs[1], text=f"Medium: {probs[1]*100:.1f}%")
-        st.progress(probs[2], text=f"High: {probs[2]*100:.1f}%")
-        
-        # Feature impact
-        st.subheader("🔍 Feature Impact")
-        features = ["LSTM Projection", "FG%", "Plus/Minus", "Net Rating", "Assist Form"]
-        values = [p1, p2, p3, p4, p5]
-        
-        for feature, value in zip(features, values):
-            level = ["Very Low", "Low", "Medium", "High"][value]
-            st.write(f"• **{feature}**: {level}")
+        try:
+            # Real Bayesian Network prediction
+            result = infer.query(variables=['LINEUP_QUALITY_SCORE_LEVEL'], evidence=evidence)
+            probs = result.values
+            pred_class = np.argmax(probs)
+            
+            # Display results
+            efficiency = ["Low", "Medium", "High"][pred_class]
+            st.success(f"**🎯 Prediction:** {efficiency} Efficiency")
+            st.metric("Confidence", f"{probs[pred_class]*100:.1f}%")
+            
+            # Probability distribution
+            st.subheader("Probability Distribution")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Low Efficiency", f"{probs[0]*100:.1f}%")
+                st.progress(probs[0])
+            with col2:
+                st.metric("Medium Efficiency", f"{probs[1]*100:.1f}%")
+                st.progress(probs[1])
+            with col3:
+                st.metric("High Efficiency", f"{probs[2]*100:.1f}%")
+                st.progress(probs[2])
+                
+        except Exception as e:
+            st.error(f"Prediction error: {e}")
 
-    # About section
-    with st.expander("ℹ️ About This AI Model"):
-        st.markdown("""
-        **NBA LSTM Lineup Forecaster**
+    # Model info
+    with st.expander("🔧 Model Information"):
+        st.markdown(f"""
+        **NBA Hybrid AI System**
         
-        **Core Innovation**: LSTM Neural Networks for player performance forecasting
-        **Accuracy**: 70.57% (+3.23% improvement over baseline)
+        **Architecture:** LSTM Forecasting → Bayesian Network Inference
+        **Accuracy:** 70.57% (+3.23% improvement)
+        **pgmpy Version:** 1.0.0 ✅
         
-        **LSTM Features**:
-        - Temporal pattern learning from 10-game sequences
-        - Player performance forecasting
-        - Form analysis and trend prediction
+        **Features Used:**
+        - 🔮 LSTM Projection Strength
+        - 🎯 Field Goal Percentage  
+        - 📈 Plus/Minus Impact
+        - ⭐ Net Rating Talent
+        - 🤝 Assist Form Ratio
         
-        **Model Architecture**:
-        - Input: 10-game player sequences
-        - LSTM Layers: 64 units with dropout
-        - Output: Player stat forecasts (PTS, AST, REB)
-        - Hybrid: LSTM + Feature Engineering + Prediction
-        
-        **Training Data**:
-        - 12,143 real NBA game logs
-        - 204 players across multiple seasons
-        - 7,500+ unique lineup combinations
+        **Technical Stack:**
+        - Python 3.10
+        - pgmpy 1.0.0 (Bayesian Networks)
+        - pandas 2.2.2
+        - numpy 2.0.2
+        - scikit-learn 1.6.1
         """)
 
 if __name__ == "__main__":
